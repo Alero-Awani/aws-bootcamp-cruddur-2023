@@ -1,0 +1,7 @@
+export HONEYCOMB_API_KEY=WUtm1Jizzm1PxVLifuRivD
+export HONEYCOMB_SERVICE_NAME=Cruddur
+
+
+HONEYCOMB_API_KEY\
+
+export WORKSPACE=production
