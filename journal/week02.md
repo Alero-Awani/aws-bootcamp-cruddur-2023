@@ -1,3 +1,198 @@
+
+# Week 2 — Distributed Tracing
+
+## To view the frontend 
+
+```
+localhost:3000
+```
+
+## To view the backend
+
+```
+localhost:4567/api/activities/home
+```
+
+### 1. Setting up Honeycomb
+
+Create a free tier Honeycomb account using here [Honeycomb.io](https://ui.honeycomb.io/) 
+
+To set our Honeycomb API key as an environment variable 
+
+```bash
+# export the key to the terminal
+export HONEYCOMB_API_KEY="..."
+
+# confirm if it was exported 
+env | grep HONEY
+
+```
+
+### 2. Instrument backend flask to use OpenTelemetry (OTEL) with Honeycomb.io as the provider 
+
+Honeycomb typically refers to a cloud-based observability platform. Honeycomb is an all-in-one solution for distributed tracing, metrics, and logging that provides deep visibility into the performance and behavior of complex systems and applications. It uses `OTEL` libraries which is simply the `OpenTelemetry` libraries.
+
+Honey comb shows you your traces and let's you aggregate over them.
+
+ Read more [here](https://www.honeycomb.io/)
+
+Next we will add the honeycomb environment variables for the `backend-flask` in the `docker-compose.yml`
+
+```yaml
+OTEL_SERVICE_NAME: 'backend-flask'
+OTEL_EXPORTER_OTLP_ENDPOINT: "https://api.honeycomb.io"
+OTEL_EXPORTER_OTLP_HEADERS: "x-honeycomb-team=${HONEYCOMB_API_KEY}"
+```
+
+Next we will add the required `OTEL` libraries to our `requirements.txt` file which is located in the `backend-flask/` directory
+
+```txt
+opentelemetry-api 
+opentelemetry-sdk 
+opentelemetry-exporter-otlp-proto-http 
+opentelemetry-instrumentation-flask 
+opentelemetry-instrumentation-requests # this should instrument outgoing HTTP calls
+```
+
+Install the dependencies using the command 
+
+```bash
+pip install -r requirements.txt
+```
+
+Next we will Initialise honeycomb by adding the following lines of code to `app.py` file
+
+```python
+# Honeycomb
+from opentelemetry import trace
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+# Initialize tracing and an exporter that can send data to Honeycomb
+provider = TracerProvider()
+processor = BatchSpanProcessor(OTLPSpanExporter())
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+tracer = trace.get_tracer(__name__)
+
+# Initialize automatic instrumentation with Flask
+app = Flask(__name__) # if this link already exists, DON'T call it again
+FlaskInstrumentor().instrument_app(app)
+RequestsInstrumentor().instrument()
+```
+
+
+Then we will build our application using `docker compose up`
+
+The Dataset in honeycomb is automatically created when it arrives with the given service name. In our case the service name is `backend-flask`
+
+
+Then you have to check honeycomb to see if the data has been imported. If not you can follow the steps below to troubleshoot.
+
+
+- Add the following lines of code in app.py when initialising the tracing
+
+```python
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
+
+simple_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+provider.add_span_processor(simple_processor)
+```
+
+Here we are telling the provider to send the spans to the through the simple processor which send the spans over the console compared to the OLTP exporter that sends spans over the internet.
+
+This way the logs of the service will also receive the spans in stdout.  
+
+Next you can view the docker logs by right clicking on the container in vscode and clicking ov `view logs`.
+
+- Check again if the API KEY is set using `env | grep HONEY` on your terminal.
+
+- You can also exec into the docker container and check `env` to see if the container picked up the environment variable. This is a probable reason why you might be getting a `401` error because the docker container didnt pick up the API KEY environment variable.
+
+![Single span](<assets/Screenshot 2024-01-24 at 11.12.56 PM.png>)
+in the picture above you can see that we have just one trace with a single span which is the root span(a span is a single piece of instrumentation from a single location in your code, multiple spans make up a single trace).
+
+Read more about datasets, Traces and spans [here](https://www.honeycomb.io/blog/datasets-traces-spans)
+
+### Hardcoding a Span
+
+We are going to harcode a span. This will use just the opentelemetry api just to add instrumentation that specific piece of code.
+
+Go to services/home_activities.py and add in the following
+
+```python
+from opentelemetry import trace 
+tracer = trace.get_tracer("home_activities")
+
+# inside def run()
+with tracer.start_as_current_span("home_activites-mock-data"):
+# indent remaining line of code under 
+```
+
+`docker compose up -d` again then reload `localhost:4567/api/activities/home`
+
+On the Honeycomb dashboard, go to Home -> Recent traces -> click on the icon of the most recent one.
+
+![mock-data-span](<assets/Screenshot 2024-01-25 at 12.29.49 AM.png>)
+
+### Adding attributes to spans
+
+This is really useful because with this the spans can become replacements for logs.
+
+```python
+span = trace.get_current_span()
+span.set_attribute("app.now", now.isoformat())
+
+#before the return statement
+span.set_attribute("app.result_length", len(results))
+
+```
+
+Now we have two attributes that are meaningful to us.
+On Honeycomb go to the recent trace, in the field section search for `app.` and you'll see the two attributes. 
+
+## OBSERVABILITY IN AWS
+
+USING XRAY
+
+![XRAY Architecture](<assets/Screenshot 2024-01-25 at 12.58.45 PM.png>)
+
+The X-Ray daemon is a container that runs alongside your application, it collects the data, batches it and sends it over to the X-ray api so that you can visualise your data. 
+
+AWS X-Ray supports using OpenTelemetry Python and the AWS Distro for OpenTelemetry(ADOT) Collector to instrument the application and send trace data to X-Ray
+
+Step 1: Install the AWS SDK 
+
+Add `aws-xray-sdk` to the requirements.txt file, cd into the backend-flask directory and `pip install -r requirements.txt`
+
+
+The importance of middleware for tracing is so that for any single request that goes through, we can extract
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Week 2 — Distributed Tracing
 
 ## X-Ray
