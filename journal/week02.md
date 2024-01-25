@@ -169,8 +169,127 @@ Step 1: Install the AWS SDK
 
 Add `aws-xray-sdk` to the requirements.txt file, cd into the backend-flask directory and `pip install -r requirements.txt`
 
+The importance of middleware for tracing is so that for any single request that goes through, we can extract information from it for the traces.
 
-The importance of middleware for tracing is so that for any single request that goes through, we can extract
+Add the following to `app.py`
+
+```py
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
+
+xray_url = os.getenv("AWS_XRAY_URL")
+xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
+XRayMiddleware(app, xray_recorder)
+
+```
+
+`xray_url = os.getenv("AWS_XRAY_URL")
+` is basically to set to dynamic name for the recorder. This env is set in the docker compose yaml later.
+
+Step 2; Setup AWS X-Ray Resources
+
+This is for setting up the sampling rules.
+
+Add `aws/json/xray.json`
+
+```json
+{
+  "SamplingRule": {
+      "RuleName": "Cruddur",
+      "ResourceARN": "*",
+      "Priority": 9000,
+      "FixedRate": 0.1,
+      "ReservoirSize": 5,
+      "ServiceName": "backend-flask",
+      "ServiceType": "*",
+      "Host": "*",
+      "HTTPMethod": "*",
+      "URLPath": "*",
+      "Version": 1
+  }
+}
+```
+
+Step 3: Create Xray group
+
+These are used to group traces together 
+
+```sh
+aws xray create-group \
+   --group-name "Cruddur" \
+   --filter-expression "service(\"backend-flask\")"
+
+```
+
+Go over to `X-Ray` on the AWS Console -> `Groups`
+
+
+Create Sampling Rules 
+
+Sampling determines how much information you want to see. With your application you won't want to collect every simple data point because it can expensive really fast.
+
+```sh
+aws xray create-sampling-rule --cli-input-json file://aws/json/xray.json
+```
+
+Set up X-ray Daemon
+
+[Install X-ray Daemon](https://docs.aws.amazon.com/xray/latest/devguide/xray-daemon.html)
+
+[Github aws-xray-daemon](https://github.com/aws/aws-xray-daemon)
+[X-Ray Docker Compose example](https://github.com/marjamis/xray/blob/master/docker-compose.yml)
+
+This command is for if we want to install it into our environment but we will be using the docker compose approach instead.
+
+```sh
+ wget https://s3.us-east-2.amazonaws.com/aws-xray-assets.us-east-2/xray-daemon/aws-xray-daemon-3.x.deb
+ sudo dpkg -i **.deb
+ ```
+
+Add Deamon Service to Docker Compose
+
+We want to run X-ray as a container because When we run ECS EC2 we have to run the X-ray Daemon in the cluster in order to get reporting
+
+```yml
+  xray-daemon:
+    image: "amazon/aws-xray-daemon"
+    environment:
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      AWS_REGION: "us-east-1"
+    command:
+      - "xray -o -b xray-daemon:2000"
+    ports:
+      - 2000:2000/udp
+```
+
+We need to add these two env vars to our backend-flask in our `docker-compose.yml` file
+
+`AWS_XRAY_URL` is for segment dynmaic naming, this is basically a pattern for naming and this important in a case where maybe you want to specify different names based on what environment you're on.
+
+```yml
+      AWS_XRAY_URL: "*4567-${WORKSPACE}*"
+      AWS_XRAY_DAEMON_ADDRESS: "xray-daemon:2000"
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
